@@ -1,21 +1,19 @@
-#[cfg(not(feature = "std"))]
+#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
-#[cfg(not(feature = "std"))]
-use core as std;
-
 use bigint::BigUint;
+
 use DecodeError;
 
 pub(crate) trait Decoder<'a, 'b>
 where
-    <Self::Iter as Iterator>::Item: std::cmp::PartialEq + Copy,
+    <Self::Iter as Iterator>::Item: core::cmp::PartialEq + Copy,
 {
-    type Iter: std::iter::Iterator;
+    type Iter: core::iter::Iterator;
 
     fn iter(&'a str) -> Self::Iter;
-    fn carry(&self, <Self::Iter as std::iter::Iterator>::Item) -> Option<u32>;
-    fn alphabet<'c>(&self) -> &'c [<Self::Iter as std::iter::Iterator>::Item]
+    fn carry(&self, <Self::Iter as core::iter::Iterator>::Item) -> Option<u32>;
+    fn alphabet<'c>(&self) -> &'c [<Self::Iter as core::iter::Iterator>::Item]
     where
         'b: 'c;
     fn decode(&self, input: &'a str) -> Result<Vec<u8>, DecodeError> {
@@ -68,7 +66,7 @@ impl<'a> U8Decoder<'a> {
 }
 
 impl<'a, 'b> Decoder<'a, 'b> for U8Decoder<'b> {
-    type Iter = std::str::Bytes<'a>;
+    type Iter = core::str::Bytes<'a>;
     #[inline]
     fn iter(s: &'a str) -> Self::Iter {
         s.bytes()
@@ -92,7 +90,7 @@ impl<'a, 'b> Decoder<'a, 'b> for U8Decoder<'b> {
 pub(crate) struct CharDecoder<'b>(pub &'b [char]);
 
 impl<'a, 'b> Decoder<'a, 'b> for CharDecoder<'b> {
-    type Iter = std::str::Chars<'a>;
+    type Iter = core::str::Chars<'a>;
 
     #[inline]
     fn iter(s: &'a str) -> Self::Iter {

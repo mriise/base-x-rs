@@ -1,10 +1,6 @@
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-#[cfg(not(feature = "std"))]
-use core as std;
-
-use std::{ptr, u32};
+use core::{ptr, u32};
 
 /// This is a pretty naive implementation of a BigUint abstracting all
 /// math out to a vector of `u32` chunks.
@@ -153,6 +149,7 @@ impl BigUint {
 mod tests {
     #![allow(clippy::unreadable_literal)]
     use super::BigUint;
+    use alloc::vec;
 
     #[test]
     fn big_uint_from_bytes() {

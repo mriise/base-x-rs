@@ -1,4 +1,4 @@
-#[cfg(not(feature = "std"))]
+#[cfg(feature = "alloc")]
 use alloc::{string::String, vec::Vec};
 use DecodeError;
 

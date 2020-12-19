@@ -22,32 +22,31 @@
 //!  assert_eq!(encoded, "11111111000000001111111100000000");
 //! }
 //! ```
+#![feature(min_const_generics)]
 
-#![cfg_attr(not(feature = "std"), no_std)]
-
-#[cfg(not(feature = "std"))]
+#![no_std]
+#[cfg(feature = "std")]
+extern crate std;
+#[cfg(feature = "alloc")]
 extern crate alloc;
+
+// #[cfg(feature = "alloc")]
+// use alloc::{string::String, vec::Vec};
 
 pub mod alphabet;
 mod bigint;
+mod bigintstatic;
 pub mod decoder;
 pub mod encoder;
 
 pub use alphabet::Alphabet;
 
-#[cfg(not(feature = "std"))]
-use alloc::{string::String, vec::Vec};
-
-#[cfg(not(feature = "std"))]
-use core as std;
-
-use std::fmt;
 
 #[derive(Debug)]
 pub struct DecodeError;
 
-impl fmt::Display for DecodeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl core::fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "Failed to decode the given data")
     }
 }
@@ -59,16 +58,24 @@ impl std::error::Error for DecodeError {
     }
 }
 
+#[cfg(feature = "alloc")]
 /// Encode an input vector using the given alphabet.
-pub fn encode<A: Alphabet>(alphabet: A, input: &[u8]) -> String {
+pub fn encode<A: Alphabet>(alphabet: A, input: &[u8]) -> alloc::string::String {
     alphabet.encode(input)
 }
 
+#[cfg(feature = "alloc")]
 /// Decode an input vector using the given alphabet.
-pub fn decode<A: Alphabet>(alphabet: A, input: &str) -> Result<Vec<u8>, DecodeError> {
+pub fn decode<A: Alphabet>(alphabet: A, input: &str) -> Result<alloc::vec::Vec<u8>, DecodeError> {
     alphabet.decode(input)
 }
 
+pub const fn output_size(alphabet: &str, input_size: usize) -> usize{
+    input_size
+}
+
+
+#[cfg(feature = "std")]
 #[cfg(test)]
 mod test {
     use super::decode;
@@ -77,6 +84,7 @@ mod test {
     use self::json::parse;
     use std::fs::File;
     use std::io::Read;
+    use std::string::String;
 
     #[test]
     fn works() {
