@@ -1,6 +1,7 @@
+use core::ptr::copy_nonoverlapping;
 /// This is a pretty naive implementation of a BigUint abstracting all
 /// math out to an array of `u32` chunks.
-/// 
+///
 /// This doesn't define any size constraints to the backing array
 ///
 /// It can only do a few things:
@@ -12,14 +13,18 @@
 ///
 /// Turns out those are all the operations you need to encode and decode
 /// base58, or anything else, really.
+#[derive(Clone, Copy, Debug)]
 pub struct BigUintStatic<const N: usize> {
     chunks: [u32; N],
-    len: usize
+    len: usize,
 }
 
 impl<const N: usize> Default for BigUintStatic<N> {
     fn default() -> Self {
-        Self { chunks: [0u32; N], len: 0 }
+        Self {
+            chunks: [0u32; N],
+            len: 0,
+        }
     }
 }
 
@@ -61,12 +66,14 @@ impl<const N: usize> BigUintStatic<N> {
                 carry >>= 32;
             }
         }
-        
+
         if carry > 0 {
             self.len = self.len + 1;
-            if self.len > self.chunks.len() { return Err(BigUintErr::BackingArrayTooSmall) }
+            if self.len > self.chunks.len() {
+                return Err(BigUintErr::BackingArrayTooSmall);
+            }
             for x in self.len..0 {
-                self.chunks.swap(x, x-1)
+                self.chunks.swap(x, x - 1)
             }
             self.chunks[0] = carry as u32;
         }
@@ -80,8 +87,7 @@ impl<const N: usize> BigUintStatic<N> {
     }
 
     #[inline]
-    pub fn into_bytes_be(mut self, output: &mut [u8]) -> Result<(), BigUintErr> {
-        if output.len() < self.len*4 { return Err(BigUintErr::OutputSliceTooSmall) }
+    pub fn into_bytes_be<'b>(mut self, output: &'b mut [u8]) -> Result<(), (usize, usize)> {
         let mut skip = 0;
 
         for chunk in self.chunks.iter() {
@@ -93,62 +99,59 @@ impl<const N: usize> BigUintStatic<N> {
             skip += 4;
         }
 
-        let len = self.chunks.len() as u32 * 4 - skip;
-
+        let len = self.chunks.len() * 4 - skip as usize;
         if len == 0 {
-            for i in 0..(self.len*4) {
-                output[i] = 0;
-            }
+            return Ok(());
+        }
+        if output.len() < len {
+            return Err((output.len(), len));
         }
 
-        for index in skip..len {
-            // SAFETY: u32 can be safely transmuted into a 4 byte array
-            let bytes: [u8; 4] = self.chunks[index as usize].to_be_bytes();
-            for (byte_index, byte) in bytes.iter().enumerate() {
-                output[(((index-skip)*4) as usize) + byte_index] = *byte;
-            }
+        for chunk in self.chunks.iter_mut() {
+            *chunk = u32::to_be(*chunk);
+        }
+
+        //TODO once caculations with const generics transmute::<[u32; N], [u8; N*4]>(self.chunks) https://hackmd.io/OZG_XiLFRs2Xmw5s39jRzA?view
+        unsafe {
+            let chunks_ptr = (self.chunks.as_ptr() as *const u8).offset(skip as isize);
+            copy_nonoverlapping(chunks_ptr, output.as_mut_ptr(), len);
         }
         Ok(())
     }
 
     #[inline]
-    pub fn from_bytes_be(bytes: &[u8]) -> Result<Self, BigUintErr> {
-        let remainder = bytes.len() % 4;
-        let full_chunks = bytes.len() / 4;
-        let last_chunk = full_chunks + (remainder > 0) as usize;
-
-        let mut backing_array = [0u32; N];
-
-        if last_chunk > N { return Err(BigUintErr::BackingArrayTooSmall) } // TODO: use result
-        
-        for i in 0..full_chunks {
-            let chunk: [u8; 4] = [
-                bytes[i*4],
-                bytes[i*4+1],
-                bytes[i*4+2],
-                bytes[i*4+3]
-            ];
-            backing_array[i] = u32::from_be_bytes(chunk);
+    pub fn from_bytes_be(bytes: &[u8]) -> Result<Self, (usize, usize)> {
+        let modulo = bytes.len() % 4;
+        let mut chunks = [0u32; N];
+        let len = bytes.len() / 4 + (modulo > 0) as usize;
+        if bytes.len() > len * 4 {
+            return Err((bytes.len(), len));
         }
-    
-        // this block will no-op if remainder is 0
-        {
-            let mut chunk = [0u8; 4];
-            // convert partial u32
-            for i in 0..remainder {
-                chunk[i] = bytes[full_chunks*4 + i];
+
+        // TODO use Vec.reserve
+        unsafe {
+            let mut chunks_ptr = chunks.as_mut_ptr() as *mut u8;
+
+            if modulo > 0 {
+                *chunks.get_unchecked_mut(0) = 0u32;
+                chunks_ptr = chunks_ptr.offset(4 - modulo as isize);
             }
-            backing_array[last_chunk-1] = u32::from_be_bytes(chunk);
+
+            copy_nonoverlapping(bytes.as_ptr(), chunks_ptr, bytes.len());
         }
-    
-        Ok(Self { chunks: backing_array, len: last_chunk })
+
+        for chunk in chunks.iter_mut() {
+            *chunk = u32::from_be(*chunk);
+        }
+
+        Ok(Self { chunks, len: 0 })
     }
 }
 
 #[derive(Debug)]
 pub enum BigUintErr {
     BackingArrayTooSmall,
-    OutputSliceTooSmall
+    OutputSliceTooSmall,
 }
 
 #[cfg(test)]
@@ -157,23 +160,27 @@ mod tests {
     use super::BigUintStatic;
 
     #[test]
-    fn big_uint_from_bytes() {
+    fn big_uint_static_from_bytes() {
         let bytes: &[u8] = &[
-            0x00, 0x00, 0xDE, 0xAD,
-            0x00, 0x00, 0x00, 0x13,
-            0x37, 0xAD, 0x00, 0x00,  
-            0xDE, 0xAD, 
+            0xDE, 0xAD, 0x00, 0x00, 0x00, 0x13, 0x37, 0xAD, 0x00, 0x00, 0x00, 0x00, 0xDE, 0xAD,
         ];
         let big = BigUintStatic::from_bytes_be(bytes).unwrap();
+        let a = big;
+        let mut output = [0u8; 14];
+        a.into_bytes_be(&mut output).unwrap();
 
+        assert_eq!(output, bytes);
         assert_eq!(
             big.chunks,
-            [0x0000DEAD, 0x00000013, 0x37AD0000, 0xDEAD0000]
+            [0x0000DEAD, 0x00000013, 0x37AD0000, 0x0000DEAD],
+            "{:X?}:{:X?}",
+            big.chunks,
+            [0x0000DEAD, 0x00000013, 0x37AD0000, 0xDEAD0000u32],
         );
     }
 
     #[test]
-    fn big_uint_rem_div() {
+    fn big_uint_static_rem_div() {
         let mut big = BigUintStatic {
             chunks: [0x136AD712, 0x84322759],
             len: 2,
@@ -187,13 +194,13 @@ mod tests {
     }
 
     #[test]
-    fn big_uint_add_mul() {
+    fn big_uint_static_add_mul() {
         let mut big = BigUintStatic {
             chunks: [0x000AD712, 0x84322759],
             len: 2,
         };
 
-        big.mul_add(58, 37);
+        big.mul_add(58, 37).unwrap();
         let merged = (u64::from(big.chunks[0]) << 32) | u64::from(big.chunks[1]);
 
         assert_eq!(merged, (0x000AD71284322759 * 58) + 37);
